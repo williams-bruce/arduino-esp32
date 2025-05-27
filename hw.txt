@@ -1,0 +1,93 @@
+1. OLED Display (SSD1306) Connections:
+OLED Display    ->    ESP32 Pin
+----------------------------------------
+VCC (3.3V)      ->    3.3V
+GND             ->    GND  
+SDA             ->    GPIO 21
+SCL             ->    GPIO 22
+
+2. Servo Motor Connections:
+Servo Wire      ->    Connection
+----------------------------------------
+Red (VCC)       ->    5V (External power preferred)
+Brown/Black     ->    GND (Common ground)
+Orange/Yellow   ->    GPIO 18
+
+3. Power Supply Setup:
+Option A - USB Power Only (for testing):
+ESP32 USB -> Computer/Power Adapter
+Servo Red Wire -> ESP32 VIN pin (only for light servos)
+
+Option B - External 5V Supply (recommended):
+5V Power Adapter -> Breadboard Power Rails
+ESP32 VIN -> 5V Rail
+ESP32 GND -> GND Rail
+Servo VCC -> 5V Rail
+Servo GND -> GND Rail
+
+OLED Display Wiring
+ESP32 Side:
+- 3.3V pin -> Red wire -> OLED VCC
+- GND pin -> Black wire -> OLED GND
+- GPIO 21 -> Yellow wire -> OLED SDA
+- GPIO 22 -> Green wire -> OLED SCL
+
+Servo motor Wiring
+ESP32 Side:
+- 5V/VIN pin -> Red wire -> Servo Red
+- GND pin -> Brown wire -> Servo Brown/Black
+- GPIO 18 -> Orange wire -> Servo Orange/Yellow
+
+
+
+ESP32-WROOM-32
+                    ┌─────────────────┐
+               3.3V │1              30│ GPIO 21 (SDA) ──── OLED SDA
+                GND │2              29│ GPIO 22 (SCL) ──── OLED SCL
+                    │3              28│
+                    │4              27│
+                    │5              26│
+                    │6              25│
+                    │7              24│
+                    │8              23│
+                GND │9              22│
+               3.3V │10             21│
+                    │11             20│
+                    │12             19│ GPIO 18 ───────── Servo Signal
+                    │13             18│
+                    │14             17│
+                5V  │15             16│
+                    └─────────────────┘
+
+OLED Display (SSD1306):               Servo Motor (SG90):
+┌─────────────┐                      ┌─────────────┐
+│ VCC  SDA    │                      │   Brown     │ ── GND
+│ GND  SCL    │                      │   Red       │ ── 5V
+└─────────────┘                      │   Orange    │ ── GPIO 18
+     │   │                           └─────────────┘
+     │   │
+3.3V │   │ GPIO 21
+GND  │   └─ GPIO 22
+     │
+     └─── 3.3V
+
+Power Connection:
+5V Adapter ──┬── ESP32 VIN
+             ├── Servo Red
+             └── Common 5V Rail
+
+GND ─────────┬── ESP32 GND  
+             ├── OLED GND
+             ├── Servo Brown
+             └── Common GND Rail
+
+
+
+ESP32 Pin    | Function        | Connection
+-------------|-----------------|------------------
+GPIO 21      | I2C SDA        | OLED SDA
+GPIO 22      | I2C SCL        | OLED SCL
+GPIO 18      | Servo PWM      | Servo Signal
+3.3V         | Power          | OLED VCC
+5V/VIN       | Power          | Servo VCC
+GND          | Ground         | All GND connections
