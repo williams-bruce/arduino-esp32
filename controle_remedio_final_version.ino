@@ -11,10 +11,12 @@
 #define OLED_ALTURA 64
 #define OLED_RESET 4
 #define SERVO1_PIN 18
+#define BUZZER_PIN 23 // Pino para o Buzzer
+#define IR_SENSOR_PIN 25 // Pino para o Sensor Infravermelho
 
 // WiFi Configuration
 const char* ap_ssid = "MedicineDispenser";
-const char* ap_password = "12345678";
+const char* ap_password = "1234abcd!";
 
 // Hardware components
 Adafruit_SSD1306 display(OLED_LARGURA, OLED_ALTURA, &Wire, OLED_RESET);
@@ -45,12 +47,26 @@ bool isConfigured = false;
 int timezone_offset = 0;
 bool wifiConnected = false;
 
+// Variáveis para controle do sensor IR e lembrete
+bool medicationWaitingPickup = false;
+unsigned long lastReminderTime = 0;
+const unsigned long reminderInterval = 0.5 * 60 * 1000; // 0.5 minutos em milissegundos
+
 void setup() {
   Serial.begin(115200);
+
+  Serial.println("==========  Iniciando o serial!!!  ==========");
+  
+  pinMode(BUZZER_PIN, OUTPUT); // Configura o pino do buzzer como saída
+  digitalWrite(BUZZER_PIN, LOW); // Garante que o buzzer comece desligado
+  pinMode(IR_SENSOR_PIN, INPUT_PULLUP); // Configura o pino do sensor IR como entrada com pull-up interno
   
   // Initialize preferences for persistent storage
   preferences.begin("med_dispenser", false);
   loadConfiguration();
+  preferences.putString("wifi_ssid", "Williams");
+  preferences.putString("wifi_password", "oi bruce :)");
+  preferences.putInt("timezone", -3);
   
   // Initialize display
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -74,8 +90,8 @@ void setup() {
   // Start NTP client
   ntp.begin();
   
-  Serial.println("Medicine Dispenser initialized");
   showTemporaryMessage("Sistema", "Iniciado!");
+  Serial.println("Medicine Dispenser initialized");
 }
 
 void loop() {
@@ -93,6 +109,9 @@ void loop() {
     checkDispenseSchedule();
   }
   
+  // Verifica o status do sensor de retirada e dispara lembretes
+  handleMedicationPickupReminder();
+
   // Update display continuously
   updateDisplay();
   
@@ -101,23 +120,58 @@ void loop() {
 
 void setupWiFi() {
   showTemporaryMessage("WiFi", "Conectando...");
-  
+
+  Serial.println("Escaneando redes WiFi disponiveis...");
+  WiFi.mode(WIFI_STA); // Define o modo para Station para poder escanear
+  WiFi.disconnect(); // Garante que não está conectado a nada antes de escanear
+  delay(100);
+
+  int n = WiFi.scanNetworks(); // Retorna o número de redes encontradas
+  Serial.println("Escaneamento concluido.");
+  if (n == 0) {
+    Serial.println("Nenhuma rede encontrada.");
+  } else {
+    Serial.print(n);
+    Serial.println(" redes encontradas:");
+    for (int i = 0; i < n; ++i) {
+      // Imprime SSID e RSSI para cada rede encontrada
+      Serial.print(i + 1);
+      Serial.print(": ");
+      Serial.print(WiFi.SSID(i));
+      Serial.print(" (");
+      Serial.print(WiFi.RSSI(i));
+      Serial.print(")");
+      Serial.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
+      delay(10);
+    }
+  }
+  Serial.println("");
+  // Fim do escaneamento de redes
+
   // Try to connect to saved WiFi first
   String saved_ssid = preferences.getString("wifi_ssid", "");
   String saved_password = preferences.getString("wifi_password", "");
   
   if (saved_ssid.length() > 0) {
+    Serial.println("Conectando ao WiFi salvo...");
+    Serial.println("SSID: " + saved_ssid);
+    Serial.println("Senha: " + saved_password);
     WiFi.mode(WIFI_AP_STA);
-    WiFi.begin(saved_ssid.c_str(), saved_password.c_str());
+    WiFi.begin(saved_ssid, saved_password);
     
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    while ((WiFi.status() != WL_CONNECTED) && attempts < 20) {
       delay(500);
       attempts++;
-      Serial.print(".");
+      Serial.println("WiFi.status(): " + String(WiFi.status()));
+      Serial.println("WL_CONNECTED: " + String(WL_CONNECTED));
+      Serial.println(WiFi.status() == WL_CONNECTED ? "Conectado " + String(attempts) : "Falha " + String(attempts));
     }
     
     if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("WiFi conectado!");
+      Serial.println("IP address: ");
+      Serial.println(WiFi.localIP());
       wifiConnected = true;
       ntp.setTimeOffset(timezone_offset * 3600);
       ntp.forceUpdate();
@@ -313,6 +367,7 @@ void checkDispenseSchedule() {
         schedule[i].minute == currentMinute &&
         !lastDispenseCheck[i]) {
       
+      beepBuzzer(3, 200); // Bip inicial 3 vezes por 200ms cada
       showTemporaryMessage("Dispensando", formatTime(currentHour, currentMinute));
       dispensePills(schedule[i].pills);
       lastDispenseCheck[i] = true;
@@ -334,10 +389,12 @@ void dispensePills(int pillCount) {
   
   for (int i = 0; i < pillCount; i++) {
     showTemporaryMessage("Comprimido", String(i + 1) + "/" + String(pillCount));
+    beepBuzzer(1, 150); // Bip curto para cada comprimido
     
     // Open compartment
-    servo1.write(90);
-    delay(1000);
+    servo1.write(60);
+    showTemporaryMessage("Liberando", "comprimido");
+    delay(2000);
     
     // Close compartment
     servo1.write(0);
@@ -345,7 +402,11 @@ void dispensePills(int pillCount) {
   }
   
   showTemporaryMessage("Concluido!", String(pillCount) + " comprimidos");
-  delay(3000);
+  medicationWaitingPickup = true; // Define que o medicamento está aguardando retirada
+  lastReminderTime = millis(); // Inicia o contador para o lembrete
+  showTemporaryMessage("Retire o", "Medicamento!"); // Atualiza display
+  Serial.println("Medicamento dispensado, aguardando retirada.");
+  // Não usar delay longo aqui para não bloquear o loop de lembrete
 }
 
 String getCurrentTimeString() {
@@ -504,6 +565,49 @@ void loadConfiguration() {
       schedule[i].minute = value.substring(firstComma + 1, secondComma).toInt();
       schedule[i].pills = value.substring(secondComma + 1).toInt();
       schedule[i].active = true;
+    }
+  }
+}
+
+// Nova função para acionar o buzzer
+void beepBuzzer(int times, int duration) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(duration);
+    digitalWrite(BUZZER_PIN, LOW);
+    if (i < times - 1) { // Evita delay após o último beep
+      delay(duration); 
+    }
+  }
+}
+
+// Nova função para verificar o sensor IR e acionar o lembrete do buzzer
+void handleMedicationPickupReminder() {
+  if (medicationWaitingPickup) {
+    // O sensor IR lê LOW quando o objeto está presente, HIGH quando ausente.
+    // INPUT_PULLUP significa que se o sensor estiver desconectado, ele lerá HIGH (sem objeto).
+    int sensorState = digitalRead(IR_SENSOR_PIN);
+    bool objectPresent = (sensorState == LOW);
+
+    // Debug: Imprime o estado do sensor no Monitor Serial
+    // Remova ou comente esta linha após verificar que o sensor funciona como esperado
+    Serial.print("Sensor IR State: ");
+    Serial.print(sensorState);
+    Serial.print(" (0=Objeto, 1=Sem Objeto) | medicationWaitingPickup: ");
+    Serial.println(medicationWaitingPickup);
+
+    if (!objectPresent) { // Se o objeto NÃO está mais presente (foi retirado)
+      medicationWaitingPickup = false;
+      showTemporaryMessage("Medicamento", "Retirado!");
+      Serial.println("Medicamento retirado pelo usuário.");
+    } else {
+      // Medicamento ainda presente, verificar se é hora do lembrete
+      if (millis() - lastReminderTime >= reminderInterval) {
+        Serial.println("Lembrete: Medicamento ainda não retirado.");
+        beepBuzzer(5, 300); // Bip mais longo e repetido para lembrete
+        showTemporaryMessage("LEMBRETE", "Retire Remedio");
+        lastReminderTime = millis(); // Reseta o tempo do último lembrete
+      }
     }
   }
 }
